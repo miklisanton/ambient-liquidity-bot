@@ -28,6 +28,6 @@ func (w *WalletService) GetAll(ctx context.Context) ([]models.Wallet, error) {
     return w.walletRepo.GetAll(ctx)
 }
 
-func (w *WalletService) GetByAddress(ctx context, address string) (*models.Wallet, error) {
+func (w *WalletService) GetByAddress(ctx context.Context, address string) (*models.Wallet, error) {
     return w.walletRepo.GetByAddress(ctx, address)
 }
