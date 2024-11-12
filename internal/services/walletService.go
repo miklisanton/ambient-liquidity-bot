@@ -1,9 +1,10 @@
 package services
 
 import (
-    "ambient/internal/db/models"
-    "ambient/internal/db/repository"
-    "context"
+	"ambient/internal/db/models"
+	"ambient/internal/db/repository"
+	"context"
+	"fmt"
 )
 
 type WalletService struct {
@@ -17,6 +18,12 @@ func NewWalletService(walletRepo *repository.WalletRepo) *WalletService {
 }
 
 func (w *WalletService) Save(ctx context.Context, wallet *models.Wallet) error {
+    if wallet.UserID == 0 {
+        return fmt.Errorf("user_id is required")
+    } 
+    if wallet.Address == "" {
+        return fmt.Errorf("address is required")
+    }
     return w.walletRepo.Save(ctx, wallet)
 }
 
