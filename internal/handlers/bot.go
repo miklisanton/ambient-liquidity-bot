@@ -24,7 +24,10 @@ type Bot struct {
     notificationCh chan utils.INotification
 }
 
-
+type Positions struct {
+    Value []models.UserWalletPosition
+    mu sync.Mutex
+}
 
 func NewBot(
     api *tgbotapi.BotAPI,
@@ -125,6 +128,7 @@ func (b *Bot)HandleAddWallet(msg *tgbotapi.Message) error {
         Address: msg.CommandArguments(),
     }
     b.walletS.Save(ctx, wallet)
+    b.newWalletCh <- true
     return nil
 }
 
@@ -219,7 +223,7 @@ func (bot *Bot) SendMessage(chatID int64, text string) int {
 
 func (b *Bot) Monitor() { 
     go func() {
-        ticker := time.NewTicker(10 * time.Second)
+        ticker := time.NewTicker(10 * time.Minute)
         for {
             select {
             case <-ticker.C:
@@ -236,7 +240,6 @@ func (b *Bot) Monitor() {
 }
 
 func (b *Bot) CheckWallets() error {
-    log.Println("Checking all wallets for new positions")
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
 
@@ -266,7 +269,7 @@ func (b *Bot) UpdatePositions(ctx context.Context, wallet *models.Wallet) error 
         log.Printf("Context done")
         return nil
     default:
-        log.Printf("Checking positions for wallet %s", wallet.Address)
+        log.Printf("Updating positions for wallet %s", wallet.Address)
         activePositions, err := b.ambientS.GetUserPools(wallet.Address)
         if err != nil {
             return fmt.Errorf("error getting user pools: %s", err)
@@ -321,47 +324,48 @@ func (b *Bot) TrackPrice() {
 
     ticker := time.NewTicker(15 * time.Second)
 
-    mutex := sync.Mutex{}
-
-    var positions []models.UserWalletPosition
+    positions := &Positions{
+        Value: []models.UserWalletPosition{},
+        mu: sync.Mutex{},
+    }
     var err error
 
     go func() {
         // Get all active positions when starting
-        log.Println("Getting all active positions")
-        mutex.Lock()
+        positions.mu.Lock()
         ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
         defer cancel()
-        positions, err = b.positionS.GetAllJoined(ctx)
+        positions.Value, err = b.positionS.GetAllJoined(ctx)
         if err != nil {
             log.Printf("Error getting all positions: %s", err)
         }
-        log.Printf("Found %d active positions", len(positions))
-        mutex.Unlock()
+        log.Printf("Found %d active positions", len(positions.Value))
+        positions.mu.Unlock()
         // Get all active positions every tick
         for {
             select {
             case <-ticker.C:
                 // Get all active positions
-                log.Println("Getting all active positions")
-                mutex.Lock()
+                positions.mu.Lock()
                 
                 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-                positions, err = b.positionS.GetAllJoined(ctx)
+                positions.Value, err = b.positionS.GetAllJoined(ctx)
+                log.Printf("Found %d active positions", len(positions.Value))
                 cancel()
                 if err != nil {
                     log.Printf("Error getting all positions: %s", err)
                     continue
                 }
-                mutex.Unlock()
+                positions.mu.Unlock()
             }
         }
     } ()
 
     go func() {
         for price := range b.binanceS.Out {
-            mutex.Lock()
-            for _, position := range positions {
+            log.Printf("Price: %f", price)
+            positions.mu.Lock()
+            for _, position := range positions.Value {
                 if position.MaxPrice < price * 1.01 || position.MinPrice > price * 0.99 {
                     b.notificationCh <- &utils.Notification{
                         Position: position,
@@ -372,7 +376,7 @@ func (b *Bot) TrackPrice() {
                     }
                 }
             }
-            mutex.Unlock()
+            positions.mu.Unlock()
         }
     } ()
 

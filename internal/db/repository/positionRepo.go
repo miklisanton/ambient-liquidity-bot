@@ -45,6 +45,8 @@ func (p *PositionRepo) GetAll(ctx context.Context) ([]models.Position, error) {
     return positions, nil
 }
 
+// GetAllJoined returns all positions with addresses and chat_ids
+// that have not been notified in the last 30 minutes
 func (p *PositionRepo) GetAllJoined(ctx context.Context) ([]models.UserWalletPosition, error) {
     query := `
     SELECT p.*, w.address, w.user_id
